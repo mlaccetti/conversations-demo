@@ -2,7 +2,9 @@ const config     = require('./config');
 const express    = require('express');
 const bodyParser = require('body-parser');
 const twilio     = require('twilio');
-const ngrok      = require('ngrok');
+
+const OpenAI = require('openai-api');
+const openai = new OpenAI(config.openai.apiKey);
 
 const app = new express();
 app.use(bodyParser.json());
@@ -35,6 +37,17 @@ app.listen(config.port, () => {
 // ============================================
 let client = new twilio(config.twilio.accountSid, config.twilio.authToken);
 
+// create a new conversation and add the user to the conversation
+client.conversations.conversations.create({friendlyName: 'OpenAI ML Test'}).then((conversation) => {
+  console.log(`Created new conversation: ${conversation.sid}`);
+
+  client.conversations.conversations(conversation.sid).participants.create({identity: 'mlaccetti'}).then(participant => {
+    console.log(`Added participant ${participant.sid} to conversation`);
+  });
+}).catch((error) => {
+  console.error(`Could not create conversation or add participant: ${error}`);
+});
+
 app.post('/chat', (req, res) => {
   console.log("Received a webhook:", req.body);
   if (req.body.EventType === 'onConversationAdded') {
@@ -55,19 +68,41 @@ app.post('/chat', (req, res) => {
 app.post('/outbound-status', (req, res) => {
   console.log(`Message ${req.body.SmsSid} to ${req.body.To} is ${req.body.MessageStatus}`);
   res.sendStatus(200);
-})
+});
 
+app.post('/callback', (req, res) => {
+  console.log("Received a webhook:", req.body);
+  if (req.body.EventType === 'onMessageSent') {
+    console.log('Received a message, sending to OpenAI.');
 
+    openai.complete({
+      engine: 'curie',
+      prompt: `Read this customer message and then answer the following questions:
 
-var ngrokOptions = {
-  proto: 'http',
-  addr: config.port
-};
-
-if (config.ngrokSubdomain) {
-  ngrokOptions.subdomain = config.ngrokSubdomain
-}
-
-ngrok.connect(ngrokOptions).then(url => {
-  console.log('ngrok url is ' + url);
-}).catch(console.error);
+      """
+      ${req.body.Body}
+      """
+      
+      Questions:
+      1. Did the customer have a complaint?
+      2. Was the customer polite?
+      3. Did the customer need additional help?
+      
+      Answers:
+      1. `,
+      maxTokens: 64,
+      temperature: 0.2,
+      topP: 1,
+      presence_penalty: 0,
+      frequency_penalty: 0,
+      best_of: 1,
+      n: 1,
+      stream: false,
+      stop: ['\n\n']
+    }).then((gptResponse) => {
+      console.log(gptResponse.data);
+      console.log("(200 OK!)");
+      res.sendStatus(200);
+    });
+  }
+});

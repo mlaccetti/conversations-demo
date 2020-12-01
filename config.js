@@ -13,5 +13,7 @@ module.exports = {
     chatServiceSid: process.env.TWILIO_CHAT_SERVICE_SID
   },
   port: process.env.PORT || 3001,
-  ngrokSubdomain: 'ajtack'
+  openai: {
+    apiKey: process.env.OPENAI_API_SECRET
+  }
 }
